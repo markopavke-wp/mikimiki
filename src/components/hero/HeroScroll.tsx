@@ -2,8 +2,7 @@
 
 /**
  * GSAP ScrollTrigger canvas scrub — desktop vs mobile sequences.
- * Mobile: bidirectional, denser frames-per-scroll, smoother scrub.
- * Desktop: one-way progress (no rewind).
+ * Progress is one-way; once the last frame is reached it stays locked.
  */
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
@@ -257,13 +256,16 @@ export function HeroScroll() {
             // Soft scrub on mobile = glatkiji osećaj; desktop malo oštrije
             scrub: isMobile ? 0.55 : 0.35,
             onUpdate: (self) => {
-              const raw = Math.round(self.progress * (FRAME_COUNT - 1));
-              let f = raw;
-              if (!isMobile) {
-                // Desktop: one-way only
-                if (raw > maxFrame) maxFrame = raw;
-                f = maxFrame;
+              // Already finished — stay on last frame, ignore further scrub
+              if (maxFrame >= FRAME_COUNT - 1) {
+                requestTarget(FRAME_COUNT - 1);
+                setChapter(1);
+                return;
               }
+              const raw = Math.round(self.progress * (FRAME_COUNT - 1));
+              // One-way: only advance
+              if (raw > maxFrame) maxFrame = raw;
+              const f = maxFrame;
               preloadAhead(f);
               requestTarget(f);
               setChapter(f / (FRAME_COUNT - 1));
