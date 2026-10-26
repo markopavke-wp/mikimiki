@@ -11,7 +11,11 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 gsap.registerPlugin(ScrollTrigger);
 
 const FRAME_COUNT = 100;
+const LAST_FRAME = FRAME_COUNT - 1;
 const MOBILE_MQ = "(max-width: 768px)";
+
+/** Survives Strict Mode remounts — once the hero finishes, never scrub again. */
+let heroSequenceCompleted = false;
 
 const frameSrc = (i: number, mobile: boolean) =>
   mobile
@@ -64,17 +68,30 @@ export function HeroScroll() {
     const images: (HTMLImageElement | undefined)[] = Array(FRAME_COUNT);
     const loaded = new Set<number>();
     let drawn = -1;
-    let maxFrame = 0;
-    let displayFrame = 0; // smoothed toward target
-    let targetFrame = 0;
+    let maxFrame = heroSequenceCompleted ? LAST_FRAME : 0;
+    let displayFrame = heroSequenceCompleted ? LAST_FRAME : 0;
+    let targetFrame = heroSequenceCompleted ? LAST_FRAME : 0;
     let rafSmooth = 0;
-    let sequenceLocked = false; // after full hero once — forever last frame
-    const LAST = FRAME_COUNT - 1;
+    let scrubTween: gsap.core.Tween | null = null;
+    const LAST = LAST_FRAME;
 
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
 
     const srcFor = (i: number) => frameSrc(i, isMobile);
+
+    let activeChapter = -1;
+    const setChapter = (progress: number) => {
+      const idx = Math.min(
+        CHAPTERS.length - 1,
+        Math.floor(progress * CHAPTERS.length),
+      );
+      if (idx === activeChapter) return;
+      activeChapter = idx;
+      chapterRefs.current.forEach((el, i) => {
+        el?.classList.toggle("is-active", i === idx);
+      });
+    };
 
     const paint = (img: HTMLImageElement) => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -101,20 +118,26 @@ export function HeroScroll() {
     };
 
     const paintIndex = (i: number) => {
-      const img = images[i];
-      if (!img || !loaded.has(i) || !img.complete || img.naturalWidth === 0) {
+      // After lock, never paint anything but the last frame
+      const frame = heroSequenceCompleted ? LAST : i;
+      const img = images[frame];
+      if (!img || !loaded.has(frame) || !img.complete || img.naturalWidth === 0) {
         return false;
       }
-      if (i === drawn) return true;
+      if (frame === drawn) return true;
       paint(img);
-      drawn = i;
+      drawn = frame;
       poster?.classList.add("is-hidden");
-      updateReadout(i);
+      updateReadout(frame);
       return true;
     };
 
     /** Prefer exact frame; else nearest already-loaded toward travel direction. */
     const paintBest = (want: number, preferForward: boolean) => {
+      if (heroSequenceCompleted) {
+        paintIndex(LAST);
+        return;
+      }
       if (paintIndex(want)) return;
       for (let e = 1; e <= 8; e++) {
         const a = preferForward ? want + e : want - e;
@@ -126,25 +149,42 @@ export function HeroScroll() {
 
     const tickSmooth = () => {
       rafSmooth = 0;
+      if (heroSequenceCompleted) {
+        displayFrame = LAST;
+        targetFrame = LAST;
+        paintIndex(LAST);
+        return;
+      }
+      // Never ease backward past the one-way ceiling
+      if (targetFrame < maxFrame) targetFrame = maxFrame;
+      if (displayFrame > targetFrame) displayFrame = targetFrame;
+
       const diff = targetFrame - displayFrame;
       if (Math.abs(diff) < 0.35) {
         displayFrame = targetFrame;
       } else {
-        // Catch up faster on mobile so one flick covers many frames smoothly
         const ease = isMobile ? 0.42 : 0.28;
         displayFrame += diff * ease;
       }
       const idx = Math.round(displayFrame);
       const prev = drawn;
-      paintBest(idx, targetFrame >= displayFrame);
+      paintBest(idx, true);
       preloadAhead(idx);
       if (Math.abs(targetFrame - displayFrame) >= 0.35 || drawn !== prev) {
         rafSmooth = requestAnimationFrame(tickSmooth);
       }
     };
 
+    const killScrub = () => {
+      if (scrubTween) {
+        scrubTween.scrollTrigger?.kill();
+        scrubTween.kill();
+        scrubTween = null;
+      }
+    };
+
     const forceLastFrame = () => {
-      sequenceLocked = true;
+      heroSequenceCompleted = true;
       maxFrame = LAST;
       targetFrame = LAST;
       displayFrame = LAST;
@@ -152,9 +192,9 @@ export function HeroScroll() {
         cancelAnimationFrame(rafSmooth);
         rafSmooth = 0;
       }
+      killScrub();
       if (!paintIndex(LAST)) {
         load(LAST);
-        // hold whatever is drawn until last is ready, then snap
         const img = images[LAST];
         if (img) {
           img.onload = () => {
@@ -167,11 +207,13 @@ export function HeroScroll() {
     };
 
     const requestTarget = (index: number) => {
-      if (sequenceLocked) {
+      if (heroSequenceCompleted) {
         forceLastFrame();
         return;
       }
-      const next = Math.max(0, Math.min(LAST, index));
+      // One-way only — never accept a lower target
+      const next = Math.max(maxFrame, Math.min(LAST, index));
+      if (next > maxFrame) maxFrame = next;
       targetFrame = next;
       if (!rafSmooth) rafSmooth = requestAnimationFrame(tickSmooth);
     };
@@ -184,6 +226,10 @@ export function HeroScroll() {
       images[i] = img;
       const onReady = () => {
         loaded.add(i);
+        if (heroSequenceCompleted) {
+          if (i === LAST) paintIndex(LAST);
+          return;
+        }
         if (Math.abs(i - Math.round(displayFrame)) <= 1) {
           requestTarget(targetFrame);
         }
@@ -196,10 +242,14 @@ export function HeroScroll() {
       for (let i = 0; i < FRAME_COUNT; i++) images[i] = undefined;
       loaded.clear();
       drawn = -1;
-      displayFrame = 0;
+      if (!heroSequenceCompleted) displayFrame = 0;
     };
 
     const preloadAhead = (center: number) => {
+      if (heroSequenceCompleted) {
+        load(LAST);
+        return;
+      }
       load(center);
       const ahead = isMobile ? 36 : 24;
       for (let e = 1; e <= ahead; e++) load(center + e);
@@ -212,6 +262,10 @@ export function HeroScroll() {
     let queueTimer = 0;
 
     const pump = () => {
+      if (heroSequenceCompleted) {
+        load(LAST);
+        return;
+      }
       while (inflight < MAX && next < FRAME_COUNT) {
         const i = next++;
         if (images[i]) continue;
@@ -223,6 +277,10 @@ export function HeroScroll() {
         const done = () => {
           loaded.add(i);
           inflight--;
+          if (heroSequenceCompleted) {
+            if (i === LAST) paintIndex(LAST);
+            return;
+          }
           if (Math.abs(i - Math.round(displayFrame)) <= 2) {
             requestTarget(targetFrame);
           }
@@ -243,21 +301,23 @@ export function HeroScroll() {
       clearImages();
       next = 1;
       inflight = 0;
+      poster?.classList.remove("is-hidden");
+      setPosterSrc(
+        frameSrc(heroSequenceCompleted ? LAST : 0, isMobile),
+      );
+      section.classList.toggle("is-mobile-hero", isMobile);
+      if (heroSequenceCompleted) {
+        maxFrame = LAST;
+        targetFrame = LAST;
+        displayFrame = LAST;
+        load(LAST);
+        forceLastFrame();
+        window.clearTimeout(queueTimer);
+        return;
+      }
       maxFrame = 0;
       targetFrame = 0;
       displayFrame = 0;
-      // Keep lock across mobile/desktop switch if already finished
-      poster?.classList.remove("is-hidden");
-      setPosterSrc(frameSrc(0, isMobile));
-      section.classList.toggle("is-mobile-hero", isMobile);
-      if (sequenceLocked) {
-        load(LAST);
-        forceLastFrame();
-        preloadAhead(LAST);
-        window.clearTimeout(queueTimer);
-        queueTimer = window.setTimeout(pump, 40);
-        return;
-      }
       load(0);
       requestTarget(0);
       preloadAhead(0);
@@ -267,23 +327,10 @@ export function HeroScroll() {
 
     startSequence();
 
-    let activeChapter = -1;
-    const setChapter = (progress: number) => {
-      const idx = Math.min(
-        CHAPTERS.length - 1,
-        Math.floor(progress * CHAPTERS.length),
-      );
-      if (idx === activeChapter) return;
-      activeChapter = idx;
-      chapterRefs.current.forEach((el, i) => {
-        el?.classList.toggle("is-active", i === idx);
-      });
-    };
-
     const triggers: ScrollTrigger[] = [];
 
-    if (!reduced) {
-      const tween = gsap.to(
+    if (!reduced && !heroSequenceCompleted) {
+      scrubTween = gsap.to(
         {},
         {
           ease: "none",
@@ -293,20 +340,17 @@ export function HeroScroll() {
             end: "bottom bottom",
             scrub: isMobile ? 0.55 : 0.35,
             onUpdate: (self) => {
-              if (sequenceLocked) {
+              if (heroSequenceCompleted) {
                 forceLastFrame();
                 return;
               }
-              // Peak progress only — never rewind frames mid-scrub
-              const peak = Math.max(
-                self.progress,
-                maxFrame / LAST,
-              );
-              const raw = Math.round(peak * LAST);
+
+              // Instantaneous scroll progress (ignore scrub lag for the ceiling)
+              const scrollProg = self.progress;
+              const raw = Math.round(scrollProg * LAST);
               if (raw > maxFrame) maxFrame = raw;
 
-              // Finished the sequence (or nearly) → hard lock
-              if (self.progress >= 0.98 || maxFrame >= LAST) {
+              if (scrollProg >= 0.97 || maxFrame >= LAST) {
                 forceLastFrame();
                 return;
               }
@@ -316,23 +360,16 @@ export function HeroScroll() {
               setChapter(maxFrame / LAST);
             },
             onLeave: () => {
-              // Scrolled past hero bottom → lock forever
               forceLastFrame();
-            },
-            onEnterBack: () => {
-              // Coming back from below → still locked on last frame
-              if (sequenceLocked) forceLastFrame();
-            },
-            onLeaveBack: () => {
-              // Left hero upward — keep lock if already completed
-              if (sequenceLocked) forceLastFrame();
             },
           },
         },
       );
-      if (tween.scrollTrigger) triggers.push(tween.scrollTrigger);
+      if (scrubTween.scrollTrigger) triggers.push(scrubTween.scrollTrigger);
+    } else if (heroSequenceCompleted) {
+      forceLastFrame();
     }
-    setChapter(0);
+    setChapter(heroSequenceCompleted ? 1 : 0);
 
     const onResize = () => {
       const nowMobile = mq.matches;
