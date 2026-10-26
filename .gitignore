@@ -39,3 +39,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local / heavy artifacts
+.venv-glb/
+.tmp-previews/
+scripts/frame-generator/**/*.mp4
+scripts/frame-generator/tripo-cache/
+scripts/frame-generator/motion-check/
+scripts/frame-generator/keyframes/
+scripts/frame-generator/nolith-refs/
+public/frames-nolith-backup/
+public/frames-prev-backup/
+public/frames-miki-backup/
+*.pyc
+__pycache__/

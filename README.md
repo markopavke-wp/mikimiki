@@ -1,36 +1,93 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Miki & Miki TRAVEL — web platforma
 
-## Getting Started
+Premium landing i katalog za turističku agenciju i prevoznika (Niš).  
+Stack: **Next.js 15**, **TypeScript**, **Tailwind CSS**, **GSAP + ScrollTrigger**, **Lenis**, canvas WebP sekvenca.
 
-First, run the development server:
+## Pokretanje
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Otvorite [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Produkcijski build:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+npm start
+```
 
-## Learn More
+## Hero animacija (100 WebP frejmova)
 
-To learn more about Next.js, take a look at the following resources:
+Frejmovi su u `public/frames/frame-000.webp` … `frame-099.webp`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Ponovno generisanje (preporučeno — tvoje reference)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Hero sekvenca je složenа od početne / mapne / krajnje reference + međukadrova:
 
-## Deploy on Vercel
+```bash
+npm run frames:refs
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- Reference: `public/images/hero-refs/{start,map,end}.png`
+- Keyframe-ovi: `scripts/frame-generator/keyframes/`
+- Skripta: `scripts/frame-generator/build-from-refs.py`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Tok: parking (vrata se zatvaraju) → vožnja → mapa (Niš–Skoplje–Solun) → parking pored mora.
+
+Alternativa (stari low-poly Three.js render):
+
+```bash
+npm run frames:render
+```
+
+### Blender putanja (opciono, viši kvalitet)
+
+```bash
+blender -b -P scripts/blender/render_journey.py
+npm run frames:webp
+```
+
+Zamenite proxy model kombija detaljnim assetom i zadržite logo kao decal.
+
+### Veličina sekvence
+
+Poslednji `frames:refs` build: **~15.7 MB** za 100 WebP frejmova (1280×720).
+
+## Zamena sadržaja
+
+| Šta | Gde |
+|-----|-----|
+| Logo | `public/images/logo.png`, `logo-transparent.png` |
+| Putovanja | `src/data/trips.ts` |
+| Prevoz | `src/data/transport.ts` |
+| Vozni park | `src/data/fleet.ts` |
+| Kontakt | `src/data/contact.ts` |
+| FAQ | `src/data/faq.ts` |
+| Destinacije (foto) | `public/images/dest-*.jpg` |
+| Privatnost / uslovi | `src/app/privatnost`, `src/app/uslovi` |
+
+## Šta je gotovo
+
+- Floating glass navigacija + mobilni meni (GSAP)
+- Hero canvas scroll-sekvenca (pin + scrub), progressive load, reduced-motion fallback
+- Glass panel pretrage (filter putovanja / popuna forme za prevoz)
+- Kartice putovanja, filteri, detaljne stranice
+- Prevoz, vozni park, o nama, FAQ accordion, kontakt forma (demo stanje bez lažnog uspeha)
+- SEO meta, semantički HTML, focus stanja, validacija formi
+
+## Šta još treba od stvarnih podataka / servisa
+
+- Telefon, email, PIB, adresa (sada demo u `contact.ts`)
+- Fotografije i specifikacije vozila (kapacitet, prtljag, oprema)
+- Zvanične cene, termini, programi (trenutno označeno kao DEMO)
+- Backend za slanje upita (forma je svesno u demo režimu)
+- Politika privatnosti i uslovi putovanja
+- WhatsApp / Viber (nisu prikazani — kontakti nisu dostavljeni)
+- Referentni sajt nije bio priložen uz prompt — raspored je originalan, inspirisan premium travel/product reveal ritmom
+
+## Napomena o stilu animacije
+
+Hero frejmovi su stilizovana kontinuirana 3D scena (low-poly / premium toy-map estetika), ne fotorealistični CGI. Za „award” fotorealizam koristite Blender skriptu + detaljan model kombija.
