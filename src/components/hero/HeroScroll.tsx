@@ -68,6 +68,8 @@ export function HeroScroll() {
     let displayFrame = 0; // smoothed toward target
     let targetFrame = 0;
     let rafSmooth = 0;
+    let sequenceLocked = false; // after full hero once — forever last frame
+    const LAST = FRAME_COUNT - 1;
 
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
@@ -141,8 +143,35 @@ export function HeroScroll() {
       }
     };
 
+    const forceLastFrame = () => {
+      sequenceLocked = true;
+      maxFrame = LAST;
+      targetFrame = LAST;
+      displayFrame = LAST;
+      if (rafSmooth) {
+        cancelAnimationFrame(rafSmooth);
+        rafSmooth = 0;
+      }
+      if (!paintIndex(LAST)) {
+        load(LAST);
+        // hold whatever is drawn until last is ready, then snap
+        const img = images[LAST];
+        if (img) {
+          img.onload = () => {
+            loaded.add(LAST);
+            paintIndex(LAST);
+          };
+        }
+      }
+      setChapter(1);
+    };
+
     const requestTarget = (index: number) => {
-      const next = Math.max(0, Math.min(FRAME_COUNT - 1, index));
+      if (sequenceLocked) {
+        forceLastFrame();
+        return;
+      }
+      const next = Math.max(0, Math.min(LAST, index));
       targetFrame = next;
       if (!rafSmooth) rafSmooth = requestAnimationFrame(tickSmooth);
     };
@@ -217,9 +246,18 @@ export function HeroScroll() {
       maxFrame = 0;
       targetFrame = 0;
       displayFrame = 0;
+      // Keep lock across mobile/desktop switch if already finished
       poster?.classList.remove("is-hidden");
       setPosterSrc(frameSrc(0, isMobile));
       section.classList.toggle("is-mobile-hero", isMobile);
+      if (sequenceLocked) {
+        load(LAST);
+        forceLastFrame();
+        preloadAhead(LAST);
+        window.clearTimeout(queueTimer);
+        queueTimer = window.setTimeout(pump, 40);
+        return;
+      }
       load(0);
       requestTarget(0);
       preloadAhead(0);
@@ -253,22 +291,41 @@ export function HeroScroll() {
             trigger: section,
             start: "top top",
             end: "bottom bottom",
-            // Soft scrub on mobile = glatkiji osećaj; desktop malo oštrije
             scrub: isMobile ? 0.55 : 0.35,
             onUpdate: (self) => {
-              // Already finished — stay on last frame, ignore further scrub
-              if (maxFrame >= FRAME_COUNT - 1) {
-                requestTarget(FRAME_COUNT - 1);
-                setChapter(1);
+              if (sequenceLocked) {
+                forceLastFrame();
                 return;
               }
-              const raw = Math.round(self.progress * (FRAME_COUNT - 1));
-              // One-way: only advance
+              // Peak progress only — never rewind frames mid-scrub
+              const peak = Math.max(
+                self.progress,
+                maxFrame / LAST,
+              );
+              const raw = Math.round(peak * LAST);
               if (raw > maxFrame) maxFrame = raw;
-              const f = maxFrame;
-              preloadAhead(f);
-              requestTarget(f);
-              setChapter(f / (FRAME_COUNT - 1));
+
+              // Finished the sequence (or nearly) → hard lock
+              if (self.progress >= 0.98 || maxFrame >= LAST) {
+                forceLastFrame();
+                return;
+              }
+
+              preloadAhead(maxFrame);
+              requestTarget(maxFrame);
+              setChapter(maxFrame / LAST);
+            },
+            onLeave: () => {
+              // Scrolled past hero bottom → lock forever
+              forceLastFrame();
+            },
+            onEnterBack: () => {
+              // Coming back from below → still locked on last frame
+              if (sequenceLocked) forceLastFrame();
+            },
+            onLeaveBack: () => {
+              // Left hero upward — keep lock if already completed
+              if (sequenceLocked) forceLastFrame();
             },
           },
         },
