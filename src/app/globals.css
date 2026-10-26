@@ -235,12 +235,34 @@ body {
 .brand-logo {
   display: block;
   flex-shrink: 0;
-  width: auto;
-  height: auto;
-  border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 6px 20px rgba(16, 20, 24, 0.14);
-  object-fit: cover;
+  border-radius: 18px;
+  box-shadow: 0 4px 14px rgba(16, 20, 24, 0.12);
+}
+
+.brand-logo-mark {
+  display: block;
+  flex-shrink: 0;
+  border-radius: 18px;
+  box-shadow: 0 4px 14px rgba(16, 20, 24, 0.12);
+}
+
+.brand-logo-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.brand-logo-word {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.brand-logo-word em {
+  font-style: normal;
+  color: var(--brand);
+  font-size: 0.78em;
+  margin-left: 0.15rem;
 }
 
 .site-after-hero {

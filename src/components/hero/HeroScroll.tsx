@@ -1,8 +1,9 @@
 "use client";
 
 /**
- * GSAP ScrollTrigger canvas scrub — desktop vs mobile frame sequences.
- * One-way frame progress (no reverse on scroll back).
+ * GSAP ScrollTrigger canvas scrub — desktop vs mobile sequences.
+ * Mobile: bidirectional, denser frames-per-scroll, smoother scrub.
+ * Desktop: one-way progress (no rewind).
  */
 import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
@@ -15,8 +16,8 @@ const MOBILE_MQ = "(max-width: 768px)";
 
 const frameSrc = (i: number, mobile: boolean) =>
   mobile
-    ? `/frames-mobile/frame-${String(i).padStart(3, "0")}.webp?v=m1`
-    : `/frames/frame-${String(i).padStart(3, "0")}.webp?v=dreamina2`;
+    ? `/frames-mobile/frame-${String(i).padStart(3, "0")}.webp?v=m2`
+    : `/frames/frame-${String(i).padStart(3, "0")}.webp?v=dreamina3`;
 
 const CHAPTERS = [
   {
@@ -58,14 +59,16 @@ export function HeroScroll() {
     const mq = window.matchMedia(MOBILE_MQ);
     let isMobile = mq.matches;
     setPosterSrc(frameSrc(0, isMobile));
+    section.classList.toggle("is-mobile-hero", isMobile);
 
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const images: (HTMLImageElement | undefined)[] = Array(FRAME_COUNT);
     const loaded = new Set<number>();
     let drawn = -1;
     let maxFrame = 0;
+    let displayFrame = 0; // smoothed toward target
     let targetFrame = 0;
-    let rafDraw = 0;
+    let rafSmooth = 0;
 
     const ctx = canvas.getContext("2d", { alpha: false });
     if (!ctx) return;
@@ -73,14 +76,13 @@ export function HeroScroll() {
     const srcFor = (i: number) => frameSrc(i, isMobile);
 
     const paint = (img: HTMLImageElement) => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
       const w = Math.round(canvas.clientWidth * dpr);
       const h = Math.round(canvas.clientHeight * dpr);
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
       }
-      // Desktop 16:9 → cover | Mobile 9:16 video → cover (fills phone)
       const scale = Math.max(w / img.naturalWidth, h / img.naturalHeight);
       const dw = img.naturalWidth * scale;
       const dh = img.naturalHeight * scale;
@@ -97,24 +99,53 @@ export function HeroScroll() {
       }
     };
 
-    const flushDraw = () => {
-      rafDraw = 0;
-      const i = targetFrame;
+    const paintIndex = (i: number) => {
       const img = images[i];
       if (!img || !loaded.has(i) || !img.complete || img.naturalWidth === 0) {
-        return;
+        return false;
       }
-      if (i === drawn) return;
+      if (i === drawn) return true;
       paint(img);
       drawn = i;
       poster?.classList.add("is-hidden");
       updateReadout(i);
+      return true;
     };
 
-    const requestDraw = (index: number) => {
-      targetFrame = Math.max(0, Math.min(FRAME_COUNT - 1, index));
-      if (rafDraw) return;
-      rafDraw = requestAnimationFrame(flushDraw);
+    /** Prefer exact frame; else nearest already-loaded toward travel direction. */
+    const paintBest = (want: number, preferForward: boolean) => {
+      if (paintIndex(want)) return;
+      for (let e = 1; e <= 8; e++) {
+        const a = preferForward ? want + e : want - e;
+        const b = preferForward ? want - e : want + e;
+        if (a >= 0 && a < FRAME_COUNT && paintIndex(a)) return;
+        if (b >= 0 && b < FRAME_COUNT && paintIndex(b)) return;
+      }
+    };
+
+    const tickSmooth = () => {
+      rafSmooth = 0;
+      const diff = targetFrame - displayFrame;
+      if (Math.abs(diff) < 0.35) {
+        displayFrame = targetFrame;
+      } else {
+        // Catch up faster on mobile so one flick covers many frames smoothly
+        const ease = isMobile ? 0.42 : 0.28;
+        displayFrame += diff * ease;
+      }
+      const idx = Math.round(displayFrame);
+      const prev = drawn;
+      paintBest(idx, targetFrame >= displayFrame);
+      preloadAhead(idx);
+      if (Math.abs(targetFrame - displayFrame) >= 0.35 || drawn !== prev) {
+        rafSmooth = requestAnimationFrame(tickSmooth);
+      }
+    };
+
+    const requestTarget = (index: number) => {
+      const next = Math.max(0, Math.min(FRAME_COUNT - 1, index));
+      targetFrame = next;
+      if (!rafSmooth) rafSmooth = requestAnimationFrame(tickSmooth);
     };
 
     const load = (i: number) => {
@@ -125,7 +156,9 @@ export function HeroScroll() {
       images[i] = img;
       const onReady = () => {
         loaded.add(i);
-        if (i === targetFrame) requestDraw(i);
+        if (Math.abs(i - Math.round(displayFrame)) <= 1) {
+          requestTarget(targetFrame);
+        }
       };
       if (img.complete && img.naturalWidth > 0) onReady();
       else img.onload = onReady;
@@ -135,17 +168,19 @@ export function HeroScroll() {
       for (let i = 0; i < FRAME_COUNT; i++) images[i] = undefined;
       loaded.clear();
       drawn = -1;
+      displayFrame = 0;
     };
 
     const preloadAhead = (center: number) => {
       load(center);
-      for (let e = 1; e <= 28; e++) load(center + e);
-      for (let e = 1; e <= 2; e++) load(center - e);
+      const ahead = isMobile ? 36 : 24;
+      for (let e = 1; e <= ahead; e++) load(center + e);
+      for (let e = 1; e <= (isMobile ? 12 : 3); e++) load(center - e);
     };
 
     let next = 1;
     let inflight = 0;
-    const MAX = 5;
+    const MAX = isMobile ? 8 : 5;
     let queueTimer = 0;
 
     const pump = () => {
@@ -160,7 +195,9 @@ export function HeroScroll() {
         const done = () => {
           loaded.add(i);
           inflight--;
-          if (i === targetFrame) requestDraw(i);
+          if (Math.abs(i - Math.round(displayFrame)) <= 2) {
+            requestTarget(targetFrame);
+          }
           pump();
         };
         if (img.complete && img.naturalWidth > 0) done();
@@ -180,13 +217,15 @@ export function HeroScroll() {
       inflight = 0;
       maxFrame = 0;
       targetFrame = 0;
+      displayFrame = 0;
       poster?.classList.remove("is-hidden");
       setPosterSrc(frameSrc(0, isMobile));
+      section.classList.toggle("is-mobile-hero", isMobile);
       load(0);
-      requestDraw(0);
+      requestTarget(0);
       preloadAhead(0);
       window.clearTimeout(queueTimer);
-      queueTimer = window.setTimeout(pump, 80);
+      queueTimer = window.setTimeout(pump, 40);
     };
 
     startSequence();
@@ -215,13 +254,18 @@ export function HeroScroll() {
             trigger: section,
             start: "top top",
             end: "bottom bottom",
-            scrub: true,
+            // Soft scrub on mobile = glatkiji osećaj; desktop malo oštrije
+            scrub: isMobile ? 0.55 : 0.35,
             onUpdate: (self) => {
-              const raw = Math.floor(self.progress * (FRAME_COUNT - 1) + 1e-6);
-              if (raw > maxFrame) maxFrame = raw;
-              const f = maxFrame;
+              const raw = Math.round(self.progress * (FRAME_COUNT - 1));
+              let f = raw;
+              if (!isMobile) {
+                // Desktop: one-way only
+                if (raw > maxFrame) maxFrame = raw;
+                f = maxFrame;
+              }
               preloadAhead(f);
-              requestDraw(f);
+              requestTarget(f);
               setChapter(f / (FRAME_COUNT - 1));
             },
           },
@@ -254,7 +298,7 @@ export function HeroScroll() {
       window.removeEventListener("resize", onResize);
       mq.removeEventListener("change", onResize);
       lenis?.off("scroll", onLenis);
-      if (rafDraw) cancelAnimationFrame(rafDraw);
+      if (rafSmooth) cancelAnimationFrame(rafSmooth);
       triggers.forEach((t) => t.kill());
       ScrollTrigger.getAll().forEach((t) => {
         if (t.trigger === section) t.kill();

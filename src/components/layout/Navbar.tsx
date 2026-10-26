@@ -28,7 +28,7 @@ export function Navbar() {
     <header className={`site-nav ${scrolled ? "is-scrolled" : ""}`}>
       <div className="site-nav-inner">
         <Link href="#pocetna" className="site-nav-brand" aria-label="Miki & Miki TRAVEL">
-          <BrandLogo size={44} />
+          <BrandLogo size={40} />
           <span>
             Miki &amp; Miki <em>TRAVEL</em>
           </span>

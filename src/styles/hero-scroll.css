@@ -141,8 +141,12 @@
 /* —— Phone / small tablet —— */
 @media (max-width: 768px) {
   .hero-scroll {
-    /* kraći put na telefonu — manje „praznog“ skrola */
-    height: 340vh;
+    /* Kraći put → jedan flick menja više frejmova */
+    height: 220vh;
+  }
+
+  .hero-scroll.is-mobile-hero {
+    height: 220vh;
   }
 
   /* Mobilni video je 9:16 — popuni ekran */
